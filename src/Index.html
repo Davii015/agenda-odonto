@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <base target="_top">
+    <meta charset="UTF-8">
+    <meta name="theme-color" content="#f4f9fd">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,400,0,0" rel="stylesheet">
+    <?!= include('Styles'); ?>
+  </head>
+  <body>
+    <div id="app" class="app-shell is-loading">
+      <aside class="sidebar" aria-label="Navegação principal">
+        <div class="brand">
+          <span class="brand-mark material-symbols-rounded" aria-hidden="true">dentistry</span>
+          <div><strong>Agenda Odonto</strong><span>Clínica universitária</span></div>
+        </div>
+        <nav class="side-nav">
+          <button class="nav-item is-active" data-view="dashboard"><span class="material-symbols-rounded">space_dashboard</span>Dashboard</button>
+          <button class="nav-item" data-view="agenda"><span class="material-symbols-rounded">calendar_month</span>Agenda</button>
+          <button class="nav-item" data-view="novo"><span class="material-symbols-rounded">person_add</span>Novo paciente</button>
+          <button class="nav-item" data-view="confirmacoes"><span class="material-symbols-rounded">fact_check</span>Confirmações</button>
+          <button class="nav-item" data-view="importar"><span class="material-symbols-rounded">upload_file</span>Importar</button>
+          <button class="nav-item" data-view="logs"><span class="material-symbols-rounded">receipt_long</span>Logs</button>
+          <button class="nav-item" data-view="configuracoes"><span class="material-symbols-rounded">settings</span>Configurações</button>
+        </nav>
+        <div class="test-mode"><span class="pulse-dot"></span><div><strong>Modo de teste</strong><small>Mensagens apenas no log</small></div></div>
+      </aside>
+
+      <main class="main-content">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow" id="today-label">Agenda Odonto</p>
+            <h1 id="page-title">Dashboard</h1>
+          </div>
+          <button class="icon-button" id="refresh-button" title="Atualizar dados" aria-label="Atualizar dados">
+            <span class="material-symbols-rounded">refresh</span>
+          </button>
+        </header>
+
+        <section class="view is-active" id="view-dashboard" aria-labelledby="page-title">
+          <div id="dashboard-content"></div>
+        </section>
+
+        <section class="view" id="view-agenda" aria-labelledby="page-title">
+          <div class="section-tools">
+            <label class="search-field"><span class="material-symbols-rounded">search</span><input id="agenda-search" type="search" placeholder="Buscar paciente" autocomplete="off"></label>
+          </div>
+          <div class="filter-scroll" id="agenda-filters" aria-label="Filtros da agenda"></div>
+          <div id="agenda-content"></div>
+        </section>
+
+        <section class="view" id="view-novo" aria-labelledby="page-title">
+          <div class="form-card narrow-card">
+            <div class="card-heading"><span class="heading-icon material-symbols-rounded">person_add</span><div><h2>Novo agendamento</h2><p>Cadastre apenas os dados necessários para a consulta.</p></div></div>
+            <form id="new-patient-form" novalidate>
+              <label class="field"><span>Nome completo</span><input name="nome" type="text" maxlength="150" placeholder="Ex.: Maria Silva" autocomplete="name" required></label>
+              <label class="field"><span>WhatsApp</span><input name="telefone" type="tel" maxlength="20" placeholder="(62) 99999-9999" autocomplete="tel" inputmode="tel" required><small>O número será salvo com o código 55.</small></label>
+              <div class="field-row">
+                <label class="field"><span>Data da consulta</span><input name="dataConsulta" type="date" required></label>
+                <label class="field"><span>Horário</span><input name="horario" type="time" required></label>
+              </div>
+              <button class="primary-button full-button" type="submit"><span class="material-symbols-rounded">check</span>Salvar agendamento</button>
+            </form>
+          </div>
+        </section>
+
+        <section class="view" id="view-confirmacoes" aria-labelledby="page-title">
+          <div id="confirmation-counters" class="confirmation-counters"></div>
+          <div class="filter-scroll" id="confirmation-filters"></div>
+          <div id="confirmations-content"></div>
+        </section>
+
+        <section class="view" id="view-importar" aria-labelledby="page-title">
+          <div class="form-card wide-card">
+            <div class="card-heading"><span class="heading-icon material-symbols-rounded">upload_file</span><div><h2>Importar pacientes</h2><p>Uma linha por paciente, com os campos separados por ponto e vírgula.</p></div></div>
+            <div class="example-box"><code>Maria Silva;62999999999;20/08/2026;14:00<br>Carlos Souza;62988888888;20/08/2026;15:00</code></div>
+            <label class="field"><span>Lista de pacientes</span><textarea id="import-text" rows="9" placeholder="Nome;WhatsApp;DD/MM/AAAA;HH:MM"></textarea></label>
+            <button class="primary-button" id="import-button"><span class="material-symbols-rounded">file_upload</span>Importar lista</button>
+            <div id="import-result" aria-live="polite"></div>
+          </div>
+        </section>
+
+        <section class="view" id="view-logs" aria-labelledby="page-title">
+          <div class="info-banner"><span class="material-symbols-rounded">science</span><div><strong>Ambiente de simulação</strong><p>Nenhuma mensagem é enviada ao WhatsApp. Tudo que seria enviado aparece aqui.</p></div></div>
+          <div class="section-tools logs-tools">
+            <label class="search-field"><span class="material-symbols-rounded">search</span><input id="logs-search" type="search" placeholder="Buscar paciente ou tipo" autocomplete="off"></label>
+          </div>
+          <div id="logs-content"></div>
+        </section>
+
+        <section class="view" id="view-configuracoes" aria-labelledby="page-title">
+          <div class="settings-grid">
+            <div class="form-card">
+              <div class="card-heading"><span class="heading-icon material-symbols-rounded">tune</span><div><h2>Parâmetros básicos</h2><p>Usados nos textos e nas janelas de automação.</p></div></div>
+              <form id="settings-form">
+                <label class="field"><span>Nome da dentista</span><input name="nomeDentista" maxlength="100" required></label>
+                <label class="field"><span>Nome da faculdade</span><input name="nomeFaculdade" maxlength="150" required></label>
+                <div class="field-row">
+                  <label class="field"><span>Dias para confirmação</span><input name="diasConfirmacao" type="number" min="1" max="30" required></label>
+                  <label class="field"><span>Lembrete 24h (min.)</span><input name="minutosLembrete24h" type="number" min="60" max="4320" required></label>
+                </div>
+                <label class="field"><span>Lembrete 1h (min.)</span><input name="minutosLembrete1h" type="number" min="10" max="240" required></label>
+                <button class="primary-button" type="submit"><span class="material-symbols-rounded">save</span>Salvar configurações</button>
+              </form>
+            </div>
+            <div class="settings-actions">
+              <article class="action-card"><span class="material-symbols-rounded">smart_toy</span><div><h3>Testar automações agora</h3><p>Analisa confirmações e lembretes elegíveis sem enviar mensagens externas.</p><button class="secondary-button" id="run-automations">Processar automações</button></div></article>
+              <article class="action-card"><span class="material-symbols-rounded">mark_chat_read</span><div><h3>Simular confirmação semanal</h3><p>Executa a rodada de segunda-feira em qualquer dia, somente no modo de teste.</p><button class="secondary-button" id="run-weekly-test">Simular rodada semanal</button></div></article>
+              <article class="action-card"><span class="material-symbols-rounded">group_add</span><div><h3>Gerar dados fictícios</h3><p>Cria cinco cenários prontos para validar agenda e lembretes.</p><button class="secondary-button" id="generate-fixtures">Gerar pacientes de teste</button></div></article>
+              <article class="privacy-card"><span class="material-symbols-rounded">verified_user</span><div><strong>Privacidade por padrão</strong><p>Este sistema guarda somente nome, telefone, data, horário e status. Tokens não aparecem nesta tela.</p></div></article>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <nav class="mobile-nav" aria-label="Navegação mobile">
+        <button class="mobile-nav-item is-active" data-view="dashboard"><span class="material-symbols-rounded">space_dashboard</span><small>Início</small></button>
+        <button class="mobile-nav-item" data-view="agenda"><span class="material-symbols-rounded">calendar_month</span><small>Agenda</small></button>
+        <button class="mobile-nav-item mobile-new" data-view="novo"><span class="material-symbols-rounded">add</span><small>Novo</small></button>
+        <button class="mobile-nav-item" data-view="confirmacoes"><span class="material-symbols-rounded">fact_check</span><small>Confirmar</small></button>
+        <button class="mobile-nav-item" id="more-button"><span class="material-symbols-rounded">more_horiz</span><small>Mais</small></button>
+      </nav>
+
+      <div class="more-menu" id="more-menu" aria-hidden="true">
+        <button data-view="importar"><span class="material-symbols-rounded">upload_file</span>Importar</button>
+        <button data-view="logs"><span class="material-symbols-rounded">receipt_long</span>Logs</button>
+        <button data-view="configuracoes"><span class="material-symbols-rounded">settings</span>Configurações</button>
+      </div>
+
+      <div class="loading-overlay" id="loading-overlay"><div class="loader"></div><span>Carregando sua agenda...</span></div>
+      <div class="toast-region" id="toast-region" aria-live="polite"></div>
+      <div class="modal-backdrop" id="edit-modal" aria-hidden="true">
+        <div class="modal" role="dialog" aria-modal="true" aria-labelledby="edit-title">
+          <button class="modal-close icon-button" type="button" aria-label="Fechar"><span class="material-symbols-rounded">close</span></button>
+          <div class="card-heading"><span class="heading-icon material-symbols-rounded">edit_calendar</span><div><h2 id="edit-title">Editar agendamento</h2><p>Atualize os dados ou o status do paciente.</p></div></div>
+          <form id="edit-patient-form">
+            <input type="hidden" name="id">
+            <label class="field"><span>Nome completo</span><input name="nome" maxlength="150" required></label>
+            <label class="field"><span>WhatsApp</span><input name="telefone" type="tel" maxlength="20" required></label>
+            <div class="field-row"><label class="field"><span>Data</span><input name="dataConsulta" type="date" required></label><label class="field"><span>Horário</span><input name="horario" type="time" required></label></div>
+            <label class="field"><span>Status</span><select name="status" id="edit-status"></select></label>
+            <div class="modal-actions"><button type="button" class="danger-button" id="delete-patient"><span class="material-symbols-rounded">delete</span>Excluir</button><button type="submit" class="primary-button"><span class="material-symbols-rounded">save</span>Salvar</button></div>
+          </form>
+        </div>
+      </div>
+    </div>
+    <?!= include('Scripts'); ?>
+  </body>
+</html>

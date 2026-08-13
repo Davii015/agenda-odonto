@@ -1,0 +1,25 @@
+# Configuração local do Google Apps Script
+.clasp.json
+.clasprc.json
+
+# Credenciais e variáveis locais
+.env
+.env.*
+!.env.example
+credentials.json
+token.json
+
+# Dependências e arquivos temporários
+node_modules/
+dist/
+build/
+coverage/
+*.log
+*.tmp
+
+# Sistema e editores
+.DS_Store
+Thumbs.db
+Desktop.ini
+.idea/
+.vscode/

@@ -1,0 +1,484 @@
+<script>
+  'use strict';
+
+  const state = {
+    pacientes: [],
+    logs: [],
+    configuracoes: {},
+    statusDisponiveis: [],
+    servidorAgora: '',
+    view: 'dashboard',
+    agendaFilter: 'todos',
+    confirmationFilter: 'todos',
+    agendaSearch: '',
+    logsSearch: ''
+  };
+
+  const PAGE_TITLES = {
+    dashboard: 'Dashboard', agenda: 'Agenda', novo: 'Novo paciente', confirmacoes: 'Confirmações',
+    importar: 'Importar pacientes', logs: 'Logs de mensagens', configuracoes: 'Configurações'
+  };
+
+  const AGENDA_FILTERS = [
+    ['todos', 'Todos'], ['hoje', 'Hoje'], ['amanha', 'Amanhã'], ['semana', 'Esta semana'],
+    ['proxima-semana', 'Próxima semana'], ['confirmados', 'Confirmados'],
+    ['aguardando', 'Aguardando confirmação'], ['cancelados', 'Cancelados']
+  ];
+
+  const CONFIRMATION_FILTERS = [
+    ['todos', 'Todos'], ['Confirmado', 'Confirmados'], ['Aguardando confirmação', 'Aguardando'], ['Cancelado', 'Cancelados']
+  ];
+
+  document.addEventListener('DOMContentLoaded', iniciarAplicacao);
+
+  async function iniciarAplicacao() {
+    conectarEventos();
+    try {
+      await carregarDados();
+    } catch (erro) {
+      toast(obterMensagemErro(erro), 'error', 7000);
+    } finally {
+      document.getElementById('app').classList.remove('is-loading');
+    }
+  }
+
+  function conectarEventos() {
+    document.querySelectorAll('[data-view]').forEach(botao => botao.addEventListener('click', () => trocarView(botao.dataset.view)));
+    document.getElementById('more-button').addEventListener('click', alternarMenuMais);
+    document.addEventListener('click', evento => {
+      const menu = document.getElementById('more-menu');
+      if (!menu.contains(evento.target) && !document.getElementById('more-button').contains(evento.target)) fecharMenuMais();
+    });
+    document.getElementById('refresh-button').addEventListener('click', () => atualizarComFeedback('Dados atualizados.'));
+    document.getElementById('new-patient-form').addEventListener('submit', cadastrarPaciente);
+    document.getElementById('edit-patient-form').addEventListener('submit', salvarEdicao);
+    document.getElementById('delete-patient').addEventListener('click', excluirPacienteAtual);
+    document.getElementById('edit-modal').addEventListener('click', evento => { if (evento.target.id === 'edit-modal') fecharModal(); });
+    document.querySelector('.modal-close').addEventListener('click', fecharModal);
+    document.addEventListener('keydown', evento => { if (evento.key === 'Escape') fecharModal(); });
+    document.getElementById('agenda-search').addEventListener('input', evento => { state.agendaSearch = evento.target.value; renderAgenda(); });
+    document.getElementById('logs-search').addEventListener('input', evento => { state.logsSearch = evento.target.value; renderLogs(); });
+    document.getElementById('import-button').addEventListener('click', importarLista);
+    document.getElementById('settings-form').addEventListener('submit', salvarConfiguracoes);
+    document.getElementById('run-automations').addEventListener('click', processarAutomacoesAgora);
+    document.getElementById('run-weekly-test').addEventListener('click', testarConfirmacaoSemanalAgora);
+    document.getElementById('generate-fixtures').addEventListener('click', gerarDadosFicticios);
+    document.querySelectorAll('input[type="tel"]').forEach(input => input.addEventListener('input', mascararTelefone));
+  }
+
+  function chamadaServidor(funcao, ...argumentos) {
+    return new Promise((resolve, reject) => {
+      if (!window.google || !google.script || !google.script.run) {
+        reject(new Error('Abra esta interface pelo Web App do Google Apps Script.'));
+        return;
+      }
+      google.script.run
+        .withSuccessHandler(resolve)
+        .withFailureHandler(reject)[funcao](...argumentos);
+    });
+  }
+
+  async function carregarDados() {
+    const dados = await chamadaServidor('obterDadosAplicacao');
+    state.pacientes = dados.pacientes || [];
+    state.logs = dados.logs || [];
+    state.configuracoes = dados.configuracoes || {};
+    state.statusDisponiveis = dados.statusDisponiveis || [];
+    state.servidorAgora = dados.servidorAgora || '';
+    renderTudo();
+  }
+
+  async function atualizarComFeedback(mensagem) {
+    const botao = document.getElementById('refresh-button');
+    definirOcupado(botao, true);
+    try {
+      await carregarDados();
+      toast(mensagem);
+    } catch (erro) {
+      toast(obterMensagemErro(erro), 'error');
+    } finally {
+      definirOcupado(botao, false);
+    }
+  }
+
+  function renderTudo() {
+    const hoje = dataHoje();
+    document.getElementById('today-label').textContent = `${formatarDiaSemana(hoje)}, ${formatarDataCurta(hoje)}`;
+    renderDashboard();
+    renderAgendaFilters();
+    renderAgenda();
+    renderConfirmacoes();
+    renderLogs();
+    preencherConfiguracoes();
+    preencherStatusEdicao();
+  }
+
+  function trocarView(view) {
+    if (!PAGE_TITLES[view]) return;
+    state.view = view;
+    document.querySelectorAll('.view').forEach(elemento => elemento.classList.toggle('is-active', elemento.id === `view-${view}`));
+    document.querySelectorAll('[data-view]').forEach(botao => botao.classList.toggle('is-active', botao.dataset.view === view));
+    document.getElementById('page-title').textContent = PAGE_TITLES[view];
+    fecharMenuMais();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    if (view === 'novo') document.querySelector('#new-patient-form input[name="nome"]').focus();
+  }
+
+  function renderDashboard() {
+    const hoje = dataHoje();
+    const ativos = state.pacientes.filter(p => p.status !== 'Cancelado');
+    const deHoje = ativos.filter(p => p.dataConsulta === hoje).sort(compararAgendamentos);
+    const proximos = ativos.filter(p => diferencaDias(hoje, p.dataConsulta) > 0);
+    const confirmados = state.pacientes.filter(p => p.status === 'Confirmado').length;
+    const aguardando = state.pacientes.filter(p => p.status === 'Aguardando confirmação').length;
+    const cancelados = state.pacientes.filter(p => p.status === 'Cancelado').length;
+    const pendentesHoje = deHoje.filter(p => p.status !== 'Confirmado' && p.status !== 'Atendido').length;
+
+    const listaHoje = deHoje.length ? deHoje.map(p => `
+      <div class="appointment-row">
+        <div class="time-pill">${esc(p.horario)}</div>
+        <div class="appointment-person"><strong>${esc(p.nome)}</strong><small>${formatarTelefone(p.telefone)}</small></div>
+        <span class="status-badge ${statusClass(p.status)}">${esc(p.status)}</span>
+      </div>`).join('') : vazio('event_available', 'Agenda livre hoje', 'Nenhum atendimento cadastrado para hoje.');
+
+    const semana = Array.from({ length: 7 }, (_, indice) => somarDias(hoje, indice));
+    const resumoSemana = semana.map(data => {
+      const total = ativos.filter(p => p.dataConsulta === data).length;
+      return `<div class="week-day"><span>${capitalizar(formatarDiaSemana(data))} · ${formatarDataCurta(data)}</span><strong>${total}</strong></div>`;
+    }).join('');
+
+    document.getElementById('dashboard-content').innerHTML = `
+      <article class="hero-card">
+        <div><div class="hero-kicker">Resumo do dia</div><h2>${deHoje.length ? `${deHoje.length} atendimento${deHoje.length === 1 ? '' : 's'} na agenda de hoje` : 'Sua agenda está livre hoje'}</h2><p>${pendentesHoje ? `${pendentesHoje} paciente${pendentesHoje === 1 ? '' : 's'} ainda precisa${pendentesHoje === 1 ? '' : 'm'} de atenção na confirmação.` : 'As confirmações de hoje estão organizadas.'}</p></div>
+        <div class="hero-number"><strong>${deHoje.length}</strong><span>pacientes hoje</span></div>
+      </article>
+      <div class="stat-grid">
+        ${statCard('today', deHoje.length, 'Consultas de hoje', '')}
+        ${statCard('event_upcoming', proximos.length, 'Próximas consultas', '')}
+        ${statCard('check_circle', confirmados, 'Confirmados', 'success')}
+        ${statCard('schedule', aguardando, 'Aguardando confirmação', 'warning')}
+        ${statCard('event_busy', cancelados, 'Cancelados', 'danger')}
+      </div>
+      <div class="dashboard-grid">
+        <article class="panel"><div class="panel-header"><h2>Atendimentos de hoje</h2><button class="text-button" onclick="trocarView('agenda')">Ver agenda</button></div><div class="today-list">${listaHoje}</div></article>
+        <article class="panel"><div class="panel-header"><h2>Resumo da semana</h2></div><div class="week-summary">${resumoSemana}</div></article>
+      </div>`;
+  }
+
+  function statCard(icone, valor, rotulo, classe) {
+    return `<article class="stat-card"><div class="stat-top"><span class="stat-icon ${classe} material-symbols-rounded">${icone}</span></div><strong>${valor}</strong><span>${rotulo}</span></article>`;
+  }
+
+  function renderAgendaFilters() {
+    document.getElementById('agenda-filters').innerHTML = AGENDA_FILTERS.map(([valor, rotulo]) =>
+      `<button class="filter-chip ${state.agendaFilter === valor ? 'is-active' : ''}" data-agenda-filter="${valor}">${rotulo}</button>`
+    ).join('');
+    document.querySelectorAll('[data-agenda-filter]').forEach(botao => botao.addEventListener('click', () => {
+      state.agendaFilter = botao.dataset.agendaFilter;
+      renderAgendaFilters();
+      renderAgenda();
+    }));
+  }
+
+  function renderAgenda() {
+    const hoje = dataHoje();
+    const termo = normalizarBusca(state.agendaSearch);
+    const pacientes = state.pacientes.filter(p => {
+      if (termo && !normalizarBusca(p.nome).includes(termo)) return false;
+      const dias = diferencaDias(hoje, p.dataConsulta);
+      switch (state.agendaFilter) {
+        case 'hoje': return dias === 0;
+        case 'amanha': return dias === 1;
+        case 'semana': return dias >= 0 && dias <= diasAteFimDaSemana(hoje);
+        case 'proxima-semana': {
+          const inicio = diasAteFimDaSemana(hoje) + 1;
+          return dias >= inicio && dias <= inicio + 6;
+        }
+        case 'confirmados': return p.status === 'Confirmado';
+        case 'aguardando': return p.status === 'Aguardando confirmação';
+        case 'cancelados': return p.status === 'Cancelado';
+        default: return true;
+      }
+    }).sort(compararAgendamentos);
+
+    document.getElementById('agenda-content').innerHTML = pacientes.length ? tabelaPacientes(pacientes, true) :
+      `<div class="records-card">${vazio('calendar_search', 'Nenhum agendamento encontrado', 'Tente outro filtro ou cadastre um novo paciente.')}</div>`;
+    conectarBotoesEdicao();
+  }
+
+  function tabelaPacientes(pacientes, editavel) {
+    return `<div class="records-card"><div class="records-header"><span>Paciente</span><span>Data</span><span>Horário</span><span>Status</span><span></span></div>${pacientes.map(p => `
+      <div class="record-row">
+        <div><strong>${esc(p.nome)}</strong><div class="record-phone">${formatarTelefone(p.telefone)}</div></div>
+        <span class="record-date">${formatarData(p.dataConsulta)}</span>
+        <span class="record-time">${esc(p.horario)}</span>
+        <span class="status-badge ${statusClass(p.status)}">${esc(p.status)}</span>
+        ${editavel ? `<button class="edit-button" data-edit-id="${escAttr(p.id)}" aria-label="Editar ${escAttr(p.nome)}"><span class="material-symbols-rounded">edit</span></button>` : '<span></span>'}
+      </div>`).join('')}</div>`;
+  }
+
+  function renderConfirmacoes() {
+    const contagens = {
+      confirmado: state.pacientes.filter(p => p.status === 'Confirmado').length,
+      aguardando: state.pacientes.filter(p => p.status === 'Aguardando confirmação').length,
+      cancelado: state.pacientes.filter(p => p.status === 'Cancelado').length
+    };
+    document.getElementById('confirmation-counters').innerHTML = `
+      <article class="confirmation-counter confirmed"><strong>${contagens.confirmado}</strong><span>Confirmados</span></article>
+      <article class="confirmation-counter waiting"><strong>${contagens.aguardando}</strong><span>Aguardando confirmação</span></article>
+      <article class="confirmation-counter cancelled"><strong>${contagens.cancelado}</strong><span>Cancelados</span></article>`;
+    document.getElementById('confirmation-filters').innerHTML = CONFIRMATION_FILTERS.map(([valor, rotulo]) =>
+      `<button class="filter-chip ${state.confirmationFilter === valor ? 'is-active' : ''}" data-confirm-filter="${escAttr(valor)}">${rotulo}</button>`
+    ).join('');
+    document.querySelectorAll('[data-confirm-filter]').forEach(botao => botao.addEventListener('click', () => {
+      state.confirmationFilter = botao.dataset.confirmFilter;
+      renderConfirmacoes();
+    }));
+
+    const permitidos = ['Confirmado', 'Aguardando confirmação', 'Cancelado'];
+    const pacientes = state.pacientes.filter(p => permitidos.includes(p.status) && (state.confirmationFilter === 'todos' || p.status === state.confirmationFilter)).sort(compararAgendamentos);
+    document.getElementById('confirmations-content').innerHTML = pacientes.length ? tabelaPacientes(pacientes, true) :
+      `<div class="records-card">${vazio('fact_check', 'Nenhuma confirmação neste grupo', 'As mudanças de status aparecerão aqui automaticamente.')}</div>`;
+    conectarBotoesEdicao();
+  }
+
+  function renderLogs() {
+    const termo = normalizarBusca(state.logsSearch);
+    const logs = state.logs.filter(log => !termo || normalizarBusca(`${log.paciente} ${log.tipo} ${log.conteudo}`).includes(termo));
+    document.getElementById('logs-content').innerHTML = logs.length ? `<div class="logs-list">${logs.map(log => `
+      <article class="log-card"><div class="log-top"><div><strong>${esc(log.paciente || 'Mensagem do sistema')}</strong><time>${formatarDataHora(log.dataHora)}</time></div><span class="log-type">${esc(log.tipo.replaceAll('_', ' '))}</span></div><p class="log-message">${esc(log.conteudo)}</p><div class="log-footer"><span>${formatarTelefone(log.telefone)}</span><span class="${log.status === 'SIMULADO' ? 'simulated' : ''}">${esc(log.status)}</span></div></article>`).join('')}</div>` :
+      `<div class="records-card">${vazio('receipt_long', 'Nenhuma mensagem simulada', 'Execute as automações com pacientes elegíveis para criar os primeiros logs.')}</div>`;
+  }
+
+  function preencherConfiguracoes() {
+    const form = document.getElementById('settings-form');
+    Object.entries(state.configuracoes).forEach(([chave, valor]) => { if (form.elements[chave]) form.elements[chave].value = valor; });
+  }
+
+  function preencherStatusEdicao() {
+    document.getElementById('edit-status').innerHTML = state.statusDisponiveis.map(status => `<option value="${escAttr(status)}">${esc(status)}</option>`).join('');
+  }
+
+  async function cadastrarPaciente(evento) {
+    evento.preventDefault();
+    const form = evento.currentTarget;
+    if (!form.reportValidity()) return;
+    const botao = form.querySelector('button[type="submit"]');
+    definirOcupado(botao, true);
+    try {
+      const resposta = await chamadaServidor('criarPaciente', dadosFormulario(form));
+      form.reset();
+      toast(resposta.mensagem);
+      await carregarDados();
+      trocarView('agenda');
+    } catch (erro) {
+      toast(obterMensagemErro(erro), 'error');
+    } finally {
+      definirOcupado(botao, false);
+    }
+  }
+
+  function conectarBotoesEdicao() {
+    document.querySelectorAll('[data-edit-id]').forEach(botao => botao.addEventListener('click', () => abrirModalEdicao(botao.dataset.editId)));
+  }
+
+  function abrirModalEdicao(id) {
+    const paciente = state.pacientes.find(item => item.id === id);
+    if (!paciente) return;
+    const form = document.getElementById('edit-patient-form');
+    ['id', 'nome', 'telefone', 'dataConsulta', 'horario', 'status'].forEach(campo => { form.elements[campo].value = paciente[campo]; });
+    const modal = document.getElementById('edit-modal');
+    modal.classList.add('is-open');
+    modal.setAttribute('aria-hidden', 'false');
+    setTimeout(() => form.elements.nome.focus(), 50);
+  }
+
+  function fecharModal() {
+    const modal = document.getElementById('edit-modal');
+    modal.classList.remove('is-open');
+    modal.setAttribute('aria-hidden', 'true');
+  }
+
+  async function salvarEdicao(evento) {
+    evento.preventDefault();
+    const form = evento.currentTarget;
+    if (!form.reportValidity()) return;
+    const botao = form.querySelector('button[type="submit"]');
+    definirOcupado(botao, true);
+    try {
+      const dados = dadosFormulario(form);
+      const id = dados.id;
+      delete dados.id;
+      const resposta = await chamadaServidor('atualizarPaciente', id, dados);
+      fecharModal();
+      toast(resposta.mensagem);
+      await carregarDados();
+    } catch (erro) {
+      toast(obterMensagemErro(erro), 'error');
+    } finally {
+      definirOcupado(botao, false);
+    }
+  }
+
+  async function excluirPacienteAtual() {
+    const form = document.getElementById('edit-patient-form');
+    const id = form.elements.id.value;
+    if (!id || !confirm('Tem certeza que deseja excluir este agendamento?')) return;
+    const botao = document.getElementById('delete-patient');
+    definirOcupado(botao, true);
+    try {
+      const resposta = await chamadaServidor('excluirPaciente', id);
+      fecharModal();
+      toast(resposta.mensagem);
+      await carregarDados();
+    } catch (erro) {
+      toast(obterMensagemErro(erro), 'error');
+    } finally {
+      definirOcupado(botao, false);
+    }
+  }
+
+  async function importarLista() {
+    const texto = document.getElementById('import-text').value;
+    const botao = document.getElementById('import-button');
+    definirOcupado(botao, true);
+    try {
+      const resposta = await chamadaServidor('importarPacientes', texto);
+      const dados = resposta.dados;
+      const errosHtml = dados.erros.length ? `<ul class="import-errors">${dados.erros.map(item => `<li>Linha ${item.linha}: ${esc(item.erro)}</li>`).join('')}</ul>` : '';
+      document.getElementById('import-result').innerHTML = `<div class="import-summary"><strong>${dados.importados} importado(s).</strong>${errosHtml}</div>`;
+      if (dados.importados) document.getElementById('import-text').value = '';
+      toast(resposta.mensagem, dados.importados ? 'success' : 'error');
+      await carregarDados();
+    } catch (erro) {
+      toast(obterMensagemErro(erro), 'error');
+    } finally {
+      definirOcupado(botao, false);
+    }
+  }
+
+  async function salvarConfiguracoes(evento) {
+    evento.preventDefault();
+    const form = evento.currentTarget;
+    if (!form.reportValidity()) return;
+    const botao = form.querySelector('button[type="submit"]');
+    definirOcupado(botao, true);
+    try {
+      const resposta = await chamadaServidor('salvarConfiguracoes', dadosFormulario(form));
+      toast(resposta.mensagem);
+      await carregarDados();
+    } catch (erro) {
+      toast(obterMensagemErro(erro), 'error');
+    } finally {
+      definirOcupado(botao, false);
+    }
+  }
+
+  async function processarAutomacoesAgora() {
+    const botao = document.getElementById('run-automations');
+    definirOcupado(botao, true);
+    try {
+      const resposta = await chamadaServidor('processarAutomacoes');
+      const r = resposta.dados;
+      toast(`Processado: ${r.confirmacoesSemanais} confirmação(ões), ${r.lembretes24h} lembrete(s) 24h e ${r.lembretes1h} lembrete(s) 1h.`);
+      await carregarDados();
+      trocarView('logs');
+    } catch (erro) {
+      toast(obterMensagemErro(erro), 'error');
+    } finally {
+      definirOcupado(botao, false);
+    }
+  }
+
+  async function gerarDadosFicticios() {
+    if (!confirm('Criar cinco pacientes fictícios para teste?')) return;
+    const botao = document.getElementById('generate-fixtures');
+    definirOcupado(botao, true);
+    try {
+      const resposta = await chamadaServidor('gerarPacientesFicticios');
+      toast(resposta.mensagem);
+      await carregarDados();
+      trocarView('agenda');
+    } catch (erro) {
+      toast(obterMensagemErro(erro), 'error');
+    } finally {
+      definirOcupado(botao, false);
+    }
+  }
+
+  async function testarConfirmacaoSemanalAgora() {
+    const botao = document.getElementById('run-weekly-test');
+    definirOcupado(botao, true);
+    try {
+      const resposta = await chamadaServidor('testarConfirmacaoSemanal');
+      toast(resposta.mensagem);
+      await carregarDados();
+      trocarView('logs');
+    } catch (erro) {
+      toast(obterMensagemErro(erro), 'error');
+    } finally {
+      definirOcupado(botao, false);
+    }
+  }
+
+  function dadosFormulario(form) {
+    return Object.fromEntries(new FormData(form).entries());
+  }
+
+  function alternarMenuMais() {
+    const menu = document.getElementById('more-menu');
+    const aberto = menu.classList.toggle('is-open');
+    menu.setAttribute('aria-hidden', String(!aberto));
+  }
+
+  function fecharMenuMais() {
+    const menu = document.getElementById('more-menu');
+    menu.classList.remove('is-open');
+    menu.setAttribute('aria-hidden', 'true');
+  }
+
+  function definirOcupado(botao, ocupado) {
+    if (!botao) return;
+    botao.disabled = ocupado;
+    botao.setAttribute('aria-busy', String(ocupado));
+  }
+
+  function toast(mensagem, tipo = 'success', duracao = 4000) {
+    const elemento = document.createElement('div');
+    elemento.className = `toast ${tipo === 'error' ? 'error' : ''}`;
+    elemento.textContent = mensagem;
+    document.getElementById('toast-region').appendChild(elemento);
+    setTimeout(() => elemento.remove(), duracao);
+  }
+
+  function mascararTelefone(evento) {
+    const input = evento.target;
+    let digitos = input.value.replace(/\D/g, '');
+    if (digitos.startsWith('55') && digitos.length > 11) digitos = digitos.slice(2);
+    digitos = digitos.slice(0, 11);
+    if (digitos.length > 6) input.value = `(${digitos.slice(0,2)}) ${digitos.slice(2,7)}-${digitos.slice(7)}`;
+    else if (digitos.length > 2) input.value = `(${digitos.slice(0,2)}) ${digitos.slice(2)}`;
+    else input.value = digitos;
+  }
+
+  function dataHoje() { return (state.servidorAgora || new Date().toISOString()).slice(0, 10); }
+  function parseDataIso(data) { const [a, m, d] = data.split('-').map(Number); return new Date(Date.UTC(a, m - 1, d)); }
+  function dataParaIso(data) { return `${data.getUTCFullYear()}-${String(data.getUTCMonth()+1).padStart(2,'0')}-${String(data.getUTCDate()).padStart(2,'0')}`; }
+  function somarDias(dataIso, dias) { const data = parseDataIso(dataIso); data.setUTCDate(data.getUTCDate() + dias); return dataParaIso(data); }
+  function diferencaDias(inicio, fim) { return Math.round((parseDataIso(fim) - parseDataIso(inicio)) / 86400000); }
+  function diasAteFimDaSemana(dataIso) { const dia = parseDataIso(dataIso).getUTCDay(); return dayToMondayIndex(dia) <= 6 ? 6 - dayToMondayIndex(dia) : 0; }
+  function dayToMondayIndex(dia) { return dia === 0 ? 6 : dia - 1; }
+  function compararAgendamentos(a, b) { return `${a.dataConsulta} ${a.horario}`.localeCompare(`${b.dataConsulta} ${b.horario}`, 'pt-BR'); }
+  function formatarData(dataIso) { const [a,m,d] = dataIso.split('-'); return `${d}/${m}/${a}`; }
+  function formatarDataCurta(dataIso) { const [,m,d] = dataIso.split('-'); return `${d}/${m}`; }
+  function formatarDiaSemana(dataIso) { return new Intl.DateTimeFormat('pt-BR', { weekday: 'long', timeZone: 'UTC' }).format(parseDataIso(dataIso)).replace('-feira',''); }
+  function formatarDataHora(valor) { if (!valor) return ''; const [data, hora] = valor.split(' '); return `${formatarData(data)} · ${hora || ''}`; }
+  function formatarTelefone(valor) { const d = String(valor || '').replace(/\D/g,'').replace(/^55/,''); if (d.length === 11) return `(${d.slice(0,2)}) ${d.slice(2,7)}-${d.slice(7)}`; if (d.length === 10) return `(${d.slice(0,2)}) ${d.slice(2,6)}-${d.slice(6)}`; return valor || ''; }
+  function statusClass(status) { return normalizarBusca(status).replaceAll(' ', '-'); }
+  function normalizarBusca(valor) { return String(valor || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim(); }
+  function capitalizar(valor) { return valor ? valor.charAt(0).toUpperCase() + valor.slice(1) : ''; }
+  function obterMensagemErro(erro) { return erro && erro.message ? erro.message.replace(/^Exception:\s*/, '') : 'Ocorreu um erro inesperado.'; }
+  function esc(valor) { return String(valor ?? '').replace(/[&<>"']/g, caractere => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[caractere])); }
+  function escAttr(valor) { return esc(valor); }
+  function vazio(icone, titulo, texto) { return `<div class="empty-state"><span class="material-symbols-rounded">${icone}</span><strong>${titulo}</strong><p>${texto}</p></div>`; }
+</script>
