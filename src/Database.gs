@@ -137,92 +137,158 @@ function ordenarPacientes_(pacientes) {
 }
 
 function criarPaciente(dados) {
-  return comBloqueio_(() => {
+  return executarEndpoint_('cadastrar o paciente', () => comBloqueio_(() => {
     validarObjeto_(dados, 'Dados do paciente inválidos.');
-    const agora = agoraFormatado_();
     const paciente = {
-      id: gerarId_('PAC'),
-      nome: textoSeguro_(dados.nome, 150),
+      nome: validarNome_(dados.nome),
       telefone: normalizarTelefone_(dados.telefone),
       dataConsulta: normalizarData_(dados.dataConsulta),
-      horario: normalizarHorario_(dados.horario),
+      horario: normalizarHorario_(dados.horario)
+    };
+    criarDataConsulta_(paciente.dataConsulta, paciente.horario);
+
+    const existentes = obterPacientes_();
+    const duplicados = existentes.filter(item => ehDuplicadoExato_(item, paciente));
+    if (duplicados.length && dados.permitirDuplicado !== true) return criarAvisoDuplicidade_(duplicados);
+
+    const agora = agoraFormatado_();
+    Object.assign(paciente, {
+      id: gerarId_('PAC'),
       status: 'Agendado',
       confirmacaoSemanalEnviada: 'NÃO',
       lembrete24hEnviado: 'NÃO',
       lembrete1hEnviado: 'NÃO',
       dataCadastro: agora,
       ultimaAtualizacao: agora
-    };
-    if (!paciente.nome || paciente.nome.length < 2) throw new Error('Informe o nome completo do paciente.');
-    criarDataConsulta_(paciente.dataConsulta, paciente.horario);
-
+    });
     const aba = garantirEstrutura_().getSheetByName(ABAS.PACIENTES);
-    aba.appendRow(pacienteParaLinha_(paciente));
+    aba.getRange(aba.getLastRow() + 1, 1, 1, CABECALHOS_PACIENTES.length).setValues([pacienteParaLinha_(paciente)]);
     return respostaSucesso_('Agendamento cadastrado com sucesso.', limparCamposInternos_(paciente));
-  });
+  }));
+}
+
+function prepararAtualizacaoPaciente_(atual, dados) {
+  const atualizado = {
+    ...atual,
+    nome: validarNome_(dados.nome),
+    telefone: normalizarTelefone_(dados.telefone),
+    dataConsulta: normalizarData_(dados.dataConsulta),
+    horario: normalizarHorario_(dados.horario),
+    status: validarStatus_(dados.status),
+    ultimaAtualizacao: agoraFormatado_()
+  };
+  criarDataConsulta_(atualizado.dataConsulta, atualizado.horario);
+  return atualizado;
+}
+
+function resetarFlagsSeReagendado_(atual, atualizado) {
+  if (atual.dataConsulta !== atualizado.dataConsulta || atual.horario !== atualizado.horario) {
+    atualizado.confirmacaoSemanalEnviada = 'NÃO';
+    atualizado.dataConfirmacaoSemanal = '';
+    atualizado.lembrete24hEnviado = 'NÃO';
+    atualizado.dataLembrete24h = '';
+    atualizado.lembrete1hEnviado = 'NÃO';
+    atualizado.dataLembrete1h = '';
+  }
+  return atualizado;
+}
+
+function salvarPacienteNaLinha_(aba, paciente) {
+  aba.getRange(paciente._linha, 1, 1, CABECALHOS_PACIENTES.length).setValues([pacienteParaLinha_(paciente)]);
+}
+
+function atualizarStatusPaciente(id, status) {
+  return executarEndpoint_('atualizar o status', () => comBloqueio_(() => {
+    const pacienteId = textoSeguro_(id, 100);
+    const novoStatus = validarStatus_(status);
+    const aba = garantirEstrutura_().getSheetByName(ABAS.PACIENTES);
+    const paciente = obterPacientes_().find(item => item.id === pacienteId);
+    if (!paciente) throw erroUsuario_('Agendamento não encontrado. Atualize a página e tente novamente.');
+    paciente.status = novoStatus;
+    paciente.ultimaAtualizacao = agoraFormatado_();
+    salvarPacienteNaLinha_(aba, paciente);
+    return respostaSucesso_(`Status alterado para ${novoStatus}.`, limparCamposInternos_(paciente));
+  }));
 }
 
 function atualizarPaciente(id, dados) {
-  return comBloqueio_(() => {
+  return executarEndpoint_('atualizar o agendamento', () => comBloqueio_(() => {
     const pacienteId = textoSeguro_(id, 100);
     validarObjeto_(dados, 'Dados do paciente inválidos.');
     const aba = garantirEstrutura_().getSheetByName(ABAS.PACIENTES);
     const pacientes = obterPacientes_();
     const atual = pacientes.find(paciente => paciente.id === pacienteId);
-    if (!atual) throw new Error('Agendamento não encontrado.');
+    if (!atual) throw erroUsuario_('Agendamento não encontrado. Atualize a página e tente novamente.');
 
-    const atualizado = {
-      ...atual,
-      nome: textoSeguro_(dados.nome, 150),
-      telefone: normalizarTelefone_(dados.telefone),
-      dataConsulta: normalizarData_(dados.dataConsulta),
-      horario: normalizarHorario_(dados.horario),
-      status: validarStatus_(dados.status),
-      ultimaAtualizacao: agoraFormatado_()
-    };
-    if (!atualizado.nome || atualizado.nome.length < 2) throw new Error('Informe o nome completo do paciente.');
-    criarDataConsulta_(atualizado.dataConsulta, atualizado.horario);
+    const atualizado = prepararAtualizacaoPaciente_(atual, dados);
+    const duplicados = pacientes.filter(item => ehDuplicadoExato_(item, atualizado, pacienteId));
+    if (duplicados.length && dados.permitirDuplicado !== true) return criarAvisoDuplicidade_(duplicados);
 
-    // Alterar data ou horário permite que as automações sejam executadas para o novo agendamento.
-    if (atual.dataConsulta !== atualizado.dataConsulta || atual.horario !== atualizado.horario) {
-      atualizado.confirmacaoSemanalEnviada = 'NÃO';
-      atualizado.dataConfirmacaoSemanal = '';
-      atualizado.lembrete24hEnviado = 'NÃO';
-      atualizado.dataLembrete24h = '';
-      atualizado.lembrete1hEnviado = 'NÃO';
-      atualizado.dataLembrete1h = '';
-    }
-
-    aba.getRange(atual._linha, 1, 1, CABECALHOS_PACIENTES.length).setValues([pacienteParaLinha_(atualizado)]);
+    resetarFlagsSeReagendado_(atual, atualizado);
+    salvarPacienteNaLinha_(aba, atualizado);
     return respostaSucesso_('Agendamento atualizado.', limparCamposInternos_(atualizado));
-  });
+  }));
 }
 
 function excluirPaciente(id) {
-  return comBloqueio_(() => {
+  return executarEndpoint_('excluir o agendamento', () => comBloqueio_(() => {
     const pacienteId = textoSeguro_(id, 100);
     const aba = garantirEstrutura_().getSheetByName(ABAS.PACIENTES);
     const paciente = obterPacientes_().find(item => item.id === pacienteId);
-    if (!paciente) throw new Error('Agendamento não encontrado.');
+    if (!paciente) throw erroUsuario_('Agendamento não encontrado. Atualize a página e tente novamente.');
     aba.deleteRow(paciente._linha);
     return respostaSucesso_('Agendamento excluído.');
-  });
-}
-
-function atualizarCamposAutomacao_(pacienteId, campos) {
-  const aba = garantirEstrutura_().getSheetByName(ABAS.PACIENTES);
-  const paciente = obterPacientes_().find(item => item.id === pacienteId);
-  if (!paciente) throw new Error(`Paciente ${pacienteId} não encontrado durante a automação.`);
-  const atualizado = { ...paciente, ...campos, ultimaAtualizacao: agoraFormatado_() };
-  aba.getRange(paciente._linha, 1, 1, CABECALHOS_PACIENTES.length).setValues([pacienteParaLinha_(atualizado)]);
+  }));
 }
 
 function registrarLog_(paciente, tipo, conteudo, status, detalhes) {
   const aba = garantirEstrutura_().getSheetByName(ABAS.LOGS);
-  aba.appendRow([
-    gerarId_('LOG'), agoraFormatado_(), paciente.id || '', paciente.nome || '', paciente.telefone || '',
+  aba.getRange(aba.getLastRow() + 1, 1, 1, CABECALHOS_LOGS.length)
+    .setValues([criarLinhaLog_(paciente, tipo, conteudo, status, detalhes)]);
+}
+
+function criarIdLogMensagem_(paciente, tipo) {
+  return ['MSG', paciente.id, paciente.dataConsulta, paciente.horario, tipo].join('-');
+}
+
+function criarLinhaLog_(paciente, tipo, conteudo, status, detalhes, id) {
+  return [
+    id || gerarId_('LOG'), agoraFormatado_(), paciente.id || '', paciente.nome || '', paciente.telefone || '',
     tipo, conteudo, status, detalhes || ''
-  ]);
+  ];
+}
+
+function registrarLogsEmLote_(registros) {
+  if (!registros.length) return 0;
+  const aba = garantirEstrutura_().getSheetByName(ABAS.LOGS);
+  const ultimaLinha = aba.getLastRow();
+  const idsExistentes = ultimaLinha < 2 ? new Set() : new Set(
+    aba.getRange(2, 1, ultimaLinha - 1, 1).getDisplayValues().map(linha => linha[0])
+  );
+  const linhas = registros
+    .filter(registro => !idsExistentes.has(registro.id))
+    .map(registro => criarLinhaLog_(
+      registro.paciente, registro.tipo, registro.mensagem, registro.status, registro.detalhes, registro.id
+    ));
+  if (linhas.length) {
+    aba.getRange(aba.getLastRow() + 1, 1, linhas.length, CABECALHOS_LOGS.length).setValues(linhas);
+  }
+  return linhas.length;
+}
+
+function salvarPacientesAutomacaoEmLote_(pacientes) {
+  if (!pacientes.length) return;
+  const aba = garantirEstrutura_().getSheetByName(ABAS.PACIENTES);
+  const ultimaLinha = aba.getLastRow();
+  if (ultimaLinha < 2) return;
+  const intervalo = aba.getRange(2, 1, ultimaLinha - 1, CABECALHOS_PACIENTES.length);
+  const linhas = intervalo.getDisplayValues();
+  pacientes.forEach(paciente => {
+    const indice = paciente._linha - 2;
+    if (indice < 0 || indice >= linhas.length) throw new Error('As linhas de pacientes mudaram durante a automação.');
+    linhas[indice] = pacienteParaLinha_(paciente);
+  });
+  intervalo.setValues(linhas);
 }
 
 function obterLogs_(limite) {

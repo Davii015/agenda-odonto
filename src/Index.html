@@ -55,13 +55,13 @@
           <div class="form-card narrow-card">
             <div class="card-heading"><span class="heading-icon material-symbols-rounded">person_add</span><div><h2>Novo agendamento</h2><p>Cadastre apenas os dados necessários para a consulta.</p></div></div>
             <form id="new-patient-form" novalidate>
-              <label class="field"><span>Nome completo</span><input name="nome" type="text" maxlength="150" placeholder="Ex.: Maria Silva" autocomplete="name" required></label>
-              <label class="field"><span>WhatsApp</span><input name="telefone" type="tel" maxlength="20" placeholder="(62) 99999-9999" autocomplete="tel" inputmode="tel" required><small>O número será salvo com o código 55.</small></label>
+              <label class="field"><span>Nome completo</span><input name="nome" type="text" maxlength="150" placeholder="Ex.: Paciente Teste 01" autocomplete="name" required></label>
+              <label class="field"><span>WhatsApp</span><input name="telefone" type="tel" minlength="14" maxlength="20" placeholder="(62) 99999-9999" autocomplete="tel" inputmode="tel" required><small>Informe DDD e número. O código 55 será adicionado ao salvar.</small></label>
               <div class="field-row">
                 <label class="field"><span>Data da consulta</span><input name="dataConsulta" type="date" required></label>
                 <label class="field"><span>Horário</span><input name="horario" type="time" required></label>
               </div>
-              <button class="primary-button full-button" type="submit"><span class="material-symbols-rounded">check</span>Salvar agendamento</button>
+              <button class="primary-button full-button" type="submit" data-loading="Salvando..."><span class="material-symbols-rounded">check</span>Salvar agendamento</button>
             </form>
           </div>
         </section>
@@ -75,9 +75,9 @@
         <section class="view" id="view-importar" aria-labelledby="page-title">
           <div class="form-card wide-card">
             <div class="card-heading"><span class="heading-icon material-symbols-rounded">upload_file</span><div><h2>Importar pacientes</h2><p>Uma linha por paciente, com os campos separados por ponto e vírgula.</p></div></div>
-            <div class="example-box"><code>Maria Silva;62999999999;20/08/2026;14:00<br>Carlos Souza;62988888888;20/08/2026;15:00</code></div>
+            <div class="example-box"><code>Paciente Teste 01;62999990001;20/08/2026;14:00<br>Paciente Teste 02;62999990002;20/08/2026;15:00</code></div>
             <label class="field"><span>Lista de pacientes</span><textarea id="import-text" rows="9" placeholder="Nome;WhatsApp;DD/MM/AAAA;HH:MM"></textarea></label>
-            <button class="primary-button" id="import-button"><span class="material-symbols-rounded">file_upload</span>Importar lista</button>
+            <button class="primary-button" id="import-button" data-loading="Importando..."><span class="material-symbols-rounded">file_upload</span>Importar lista</button>
             <div id="import-result" aria-live="polite"></div>
           </div>
         </section>
@@ -87,6 +87,7 @@
           <div class="section-tools logs-tools">
             <label class="search-field"><span class="material-symbols-rounded">search</span><input id="logs-search" type="search" placeholder="Buscar paciente ou tipo" autocomplete="off"></label>
           </div>
+          <div class="filter-scroll" id="logs-filters" aria-label="Filtros dos logs"></div>
           <div id="logs-content"></div>
         </section>
 
@@ -97,19 +98,14 @@
               <form id="settings-form">
                 <label class="field"><span>Nome da dentista</span><input name="nomeDentista" maxlength="100" required></label>
                 <label class="field"><span>Nome da faculdade</span><input name="nomeFaculdade" maxlength="150" required></label>
-                <div class="field-row">
-                  <label class="field"><span>Dias para confirmação</span><input name="diasConfirmacao" type="number" min="1" max="30" required></label>
-                  <label class="field"><span>Lembrete 24h (min.)</span><input name="minutosLembrete24h" type="number" min="60" max="4320" required></label>
-                </div>
-                <label class="field"><span>Lembrete 1h (min.)</span><input name="minutosLembrete1h" type="number" min="10" max="240" required></label>
-                <button class="primary-button" type="submit"><span class="material-symbols-rounded">save</span>Salvar configurações</button>
+                <label class="field"><span>Dias para confirmação</span><input name="diasConfirmacao" type="number" min="1" max="30" required></label>
+                <label class="field"><span>Modo de operação</span><input name="modoTeste" value="Ativo — mensagens somente nos Logs" disabled></label>
+                <button class="primary-button" type="submit" data-loading="Salvando..."><span class="material-symbols-rounded">save</span>Salvar configurações</button>
               </form>
             </div>
             <div class="settings-actions">
-              <article class="action-card"><span class="material-symbols-rounded">smart_toy</span><div><h3>Testar automações agora</h3><p>Analisa confirmações e lembretes elegíveis sem enviar mensagens externas.</p><button class="secondary-button" id="run-automations">Processar automações</button></div></article>
-              <article class="action-card"><span class="material-symbols-rounded">mark_chat_read</span><div><h3>Simular confirmação semanal</h3><p>Executa a rodada de segunda-feira em qualquer dia, somente no modo de teste.</p><button class="secondary-button" id="run-weekly-test">Simular rodada semanal</button></div></article>
-              <article class="action-card"><span class="material-symbols-rounded">group_add</span><div><h3>Gerar dados fictícios</h3><p>Cria cinco cenários prontos para validar agenda e lembretes.</p><button class="secondary-button" id="generate-fixtures">Gerar pacientes de teste</button></div></article>
               <article class="privacy-card"><span class="material-symbols-rounded">verified_user</span><div><strong>Privacidade por padrão</strong><p>Este sistema guarda somente nome, telefone, data, horário e status. Tokens não aparecem nesta tela.</p></div></article>
+              <article class="action-card"><span class="material-symbols-rounded">schedule</span><div><h3>Automação ativa</h3><p>A confirmação semanal e os lembretes são processados pelo gatilho recorrente. Nesta versão, as mensagens aparecem somente em Logs.</p></div></article>
             </div>
           </div>
         </section>
@@ -138,10 +134,10 @@
           <form id="edit-patient-form">
             <input type="hidden" name="id">
             <label class="field"><span>Nome completo</span><input name="nome" maxlength="150" required></label>
-            <label class="field"><span>WhatsApp</span><input name="telefone" type="tel" maxlength="20" required></label>
+            <label class="field"><span>WhatsApp</span><input name="telefone" type="tel" minlength="14" maxlength="20" required></label>
             <div class="field-row"><label class="field"><span>Data</span><input name="dataConsulta" type="date" required></label><label class="field"><span>Horário</span><input name="horario" type="time" required></label></div>
             <label class="field"><span>Status</span><select name="status" id="edit-status"></select></label>
-            <div class="modal-actions"><button type="button" class="danger-button" id="delete-patient"><span class="material-symbols-rounded">delete</span>Excluir</button><button type="submit" class="primary-button"><span class="material-symbols-rounded">save</span>Salvar</button></div>
+            <div class="modal-actions"><button type="button" class="danger-button" id="delete-patient" data-loading="Excluindo..."><span class="material-symbols-rounded">delete</span>Excluir</button><button type="submit" class="primary-button" data-loading="Salvando..."><span class="material-symbols-rounded">save</span>Salvar</button></div>
           </form>
         </div>
       </div>

@@ -1,69 +1,82 @@
 # Roteiro de testes
 
-Mantenha `MODO_TESTE = true` durante todo este roteiro.
+Use exclusivamente uma planilha de testes, mantenha `MODO_TESTE: true` e utilize apenas pacientes claramente fictícios.
+
+## Testes automatizados locais
+
+```bash
+node tests/run-tests.js
+```
+
+O script usa uma planilha em memória. Ele não acessa Google Sheets, não envia dados e não cria mensagens externas.
 
 ## 1. Configuração inicial
 
-1. Abra o Web App.
-2. Entre em **Configurações**.
-3. Informe o nome da dentista e da faculdade.
-4. Salve.
+1. Execute `setup()` duas vezes no editor.
+2. Confirme que existem somente as abas `Pacientes` e `Logs` esperadas.
+3. Em **Gatilhos**, confirme que existe apenas um gatilho de `processarAutomacoes` a cada cinco minutos.
+4. Abra o Web App e salve nome da dentista, faculdade e dias para confirmação.
 
-## 2. Cadastro e agenda
+## 2. CRUD e status
 
-1. Cadastre um paciente com nome, WhatsApp, data e horário.
-2. Confira se o telefone foi salvo com o código `55` na planilha.
-3. Use a busca e os filtros da Agenda.
-4. Edite nome, telefone, data, horário e status.
-5. Teste a exclusão e confirme a mensagem de segurança.
+1. Cadastre `Paciente Teste 01` com telefone `62999990001`.
+2. Confira na planilha o telefone `5562999990001`.
+3. Repita exatamente telefone, data e horário; confirme que o sistema avisa antes de permitir.
+4. Edite nome, telefone, data, horário e status; confirme que o ID não mudou.
+5. Use as ações rápidas **Confirmar**, **Cancelar**, **Atendido** e **Faltou**.
+6. Exclua um registro e confirme a pergunta de segurança.
 
-## 3. Importação
+## 3. Agenda e dashboard
 
-Cole em **Importar**:
+Valide Dashboard, atendimentos de hoje ordenados por horário, busca sem recarregar a página e filtros:
+
+- Hoje;
+- Amanhã;
+- Esta semana;
+- Próxima semana;
+- Todos;
+- Confirmados;
+- Aguardando confirmação;
+- Cancelados.
+
+## 4. Importação
 
 ```text
-Maria Silva;62999999999;20/08/2026;14:00
-Carlos Souza;62988888888;20/08/2026;15:00
-Linha Inválida;123;99/99/2026;40:00
+Paciente Teste 10;62999990010;20/08/2026;14:00
+Paciente Teste 11;62999990011;20/08/2026;15:00
+Telefone Inválido;123;20/08/2026;16:00
+Data Inválida;62999990012;31/02/2026;10:00
+Paciente Teste 10;62999990010;20/08/2026;14:00
 ```
 
-Resultado esperado: dois registros importados e uma linha informada como erro.
+Resultado esperado: duas linhas importadas e três erros, sem interromper o lote.
 
-## 4. Pacientes fictícios
+## 5. Automações
 
-Em **Configurações**, clique em **Gerar pacientes de teste**. O sistema criará:
+As ferramentas abaixo são funções de desenvolvimento e não aparecem no Web App de produção.
 
-- paciente para aproximadamente 30 minutos;
-- paciente para aproximadamente 1 hora;
-- paciente para aproximadamente 24 horas;
-- paciente para três dias;
-- paciente cancelado.
+1. No editor do Apps Script, execute `gerarPacientesFicticios()` em uma base vazia de testes.
+2. Execute `processarAutomacoes()` para validar lembretes na janela de 24 horas e 1 hora.
+3. Execute novamente e confirme que os logs não se repetem.
+4. Execute `testarConfirmacaoSemanal()` para testar a rodada semanal fora de segunda-feira.
+5. Confirme que cancelados e atendidos não recebem nenhuma mensagem.
+6. Confira flags, datas/horas e status `SIMULADO` nas duas abas.
 
-## 5. Lembretes
+## 6. Datas e timezone
 
-Clique em **Processar automações** logo após gerar os pacientes.
+Crie cenários antes e depois da meia-noite, consulta amanhã e consultas nas janelas de 24 horas e 1 hora. Confirme que a data exibida e persistida permanece em `America/Sao_Paulo`.
 
-Resultado esperado nos Logs:
+## 7. Interface
 
-- um `LEMBRETE_1H`;
-- um `LEMBRETE_24H`;
-- nenhum lembrete para o cancelado;
-- status `SIMULADO` em todos os registros.
+Teste a URL `/dev` antes de atualizar a implantação `/exec`:
 
-Execute novamente. As mensagens anteriores não devem ser repetidas.
-
-## 6. Confirmação semanal
-
-Clique em **Simular rodada semanal** para testar a regra mesmo fora de uma segunda-feira.
-
-Os pacientes elegíveis devem gerar `CONFIRMACAO_SEMANAL` e, quando estavam como `Agendado`, passar para `Aguardando confirmação`.
-
-## 7. Painéis
-
-Confira:
-
-- números do Dashboard;
-- atendimentos de hoje ordenados por horário;
-- resumo semanal;
-- contadores de Confirmados, Aguardando e Cancelados;
-- mensagens completas na tela Logs e na aba `Logs` da planilha.
+- desktop;
+- 320 px;
+- 375 px;
+- 390 px;
+- 430 px;
+- formulário e modal;
+- navegação inferior;
+- loading e botão desabilitado durante requisições;
+- feedback amigável de sucesso e erro;
+- ausência de scroll horizontal e botões cortados.

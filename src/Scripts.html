@@ -11,7 +11,8 @@
     agendaFilter: 'todos',
     confirmationFilter: 'todos',
     agendaSearch: '',
-    logsSearch: ''
+    logsSearch: '',
+    logsFilter: 'todos'
   };
 
   const PAGE_TITLES = {
@@ -27,6 +28,11 @@
 
   const CONFIRMATION_FILTERS = [
     ['todos', 'Todos'], ['Confirmado', 'Confirmados'], ['Aguardando confirmação', 'Aguardando'], ['Cancelado', 'Cancelados']
+  ];
+
+  const LOG_FILTERS = [
+    ['todos', 'Todos'], ['CONFIRMACAO_SEMANAL', 'Confirmação semanal'],
+    ['LEMBRETE_24H', 'Lembrete 24h'], ['LEMBRETE_1H', 'Lembrete 1h']
   ];
 
   document.addEventListener('DOMContentLoaded', iniciarAplicacao);
@@ -60,9 +66,6 @@
     document.getElementById('logs-search').addEventListener('input', evento => { state.logsSearch = evento.target.value; renderLogs(); });
     document.getElementById('import-button').addEventListener('click', importarLista);
     document.getElementById('settings-form').addEventListener('submit', salvarConfiguracoes);
-    document.getElementById('run-automations').addEventListener('click', processarAutomacoesAgora);
-    document.getElementById('run-weekly-test').addEventListener('click', testarConfirmacaoSemanalAgora);
-    document.getElementById('generate-fixtures').addEventListener('click', gerarDadosFicticios);
     document.querySelectorAll('input[type="tel"]').forEach(input => input.addEventListener('input', mascararTelefone));
   }
 
@@ -73,13 +76,20 @@
         return;
       }
       google.script.run
-        .withSuccessHandler(resolve)
+        .withSuccessHandler(resposta => {
+          if (resposta && resposta.sucesso === false) {
+            reject(new Error(resposta.mensagem || 'Não foi possível concluir a operação.'));
+            return;
+          }
+          resolve(resposta);
+        })
         .withFailureHandler(reject)[funcao](...argumentos);
     });
   }
 
   async function carregarDados() {
-    const dados = await chamadaServidor('obterDadosAplicacao');
+    const resposta = await chamadaServidor('obterDadosAplicacao');
+    const dados = resposta.dados || {};
     state.pacientes = dados.pacientes || [];
     state.logs = dados.logs || [];
     state.configuracoes = dados.configuracoes || {};
@@ -108,6 +118,7 @@
     renderAgendaFilters();
     renderAgenda();
     renderConfirmacoes();
+    renderLogsFilters();
     renderLogs();
     preencherConfiguracoes();
     preencherStatusEdicao();
@@ -209,7 +220,7 @@
   function tabelaPacientes(pacientes, editavel) {
     return `<div class="records-card"><div class="records-header"><span>Paciente</span><span>Data</span><span>Horário</span><span>Status</span><span></span></div>${pacientes.map(p => `
       <div class="record-row">
-        <div><strong>${esc(p.nome)}</strong><div class="record-phone">${formatarTelefone(p.telefone)}</div></div>
+        <div><strong>${esc(p.nome)}</strong><div class="record-phone">${formatarTelefone(p.telefone)}</div>${editavel ? acoesRapidas(p) : ''}</div>
         <span class="record-date">${formatarData(p.dataConsulta)}</span>
         <span class="record-time">${esc(p.horario)}</span>
         <span class="status-badge ${statusClass(p.status)}">${esc(p.status)}</span>
@@ -217,11 +228,28 @@
       </div>`).join('')}</div>`;
   }
 
+  function acoesRapidas(paciente) {
+    const acoes = [
+      ['Confirmado', 'check', 'Confirmar'],
+      ['Cancelado', 'event_busy', 'Cancelar'],
+      ['Atendido', 'task_alt', 'Atendido'],
+      ['Faltou', 'person_off', 'Faltou']
+    ].filter(([status]) => status !== paciente.status);
+    return `<div class="quick-actions">${acoes.map(([status, icone, rotulo]) =>
+      `<button type="button" class="quick-action" data-status-id="${escAttr(paciente.id)}" data-status-value="${escAttr(status)}" data-loading="Aguarde..."><span class="material-symbols-rounded">${icone}</span>${rotulo}</button>`
+    ).join('')}</div>`;
+  }
+
   function renderConfirmacoes() {
+    const hoje = dataHoje();
+    const pacientesDaJanela = state.pacientes.filter(p => {
+      const dias = diferencaDias(hoje, p.dataConsulta);
+      return dias >= 0 && dias <= Number(state.configuracoes.diasConfirmacao || 7);
+    });
     const contagens = {
-      confirmado: state.pacientes.filter(p => p.status === 'Confirmado').length,
-      aguardando: state.pacientes.filter(p => p.status === 'Aguardando confirmação').length,
-      cancelado: state.pacientes.filter(p => p.status === 'Cancelado').length
+      confirmado: pacientesDaJanela.filter(p => p.status === 'Confirmado').length,
+      aguardando: pacientesDaJanela.filter(p => p.status === 'Aguardando confirmação').length,
+      cancelado: pacientesDaJanela.filter(p => p.status === 'Cancelado').length
     };
     document.getElementById('confirmation-counters').innerHTML = `
       <article class="confirmation-counter confirmed"><strong>${contagens.confirmado}</strong><span>Confirmados</span></article>
@@ -236,7 +264,7 @@
     }));
 
     const permitidos = ['Confirmado', 'Aguardando confirmação', 'Cancelado'];
-    const pacientes = state.pacientes.filter(p => permitidos.includes(p.status) && (state.confirmationFilter === 'todos' || p.status === state.confirmationFilter)).sort(compararAgendamentos);
+    const pacientes = pacientesDaJanela.filter(p => permitidos.includes(p.status) && (state.confirmationFilter === 'todos' || p.status === state.confirmationFilter)).sort(compararAgendamentos);
     document.getElementById('confirmations-content').innerHTML = pacientes.length ? tabelaPacientes(pacientes, true) :
       `<div class="records-card">${vazio('fact_check', 'Nenhuma confirmação neste grupo', 'As mudanças de status aparecerão aqui automaticamente.')}</div>`;
     conectarBotoesEdicao();
@@ -244,15 +272,32 @@
 
   function renderLogs() {
     const termo = normalizarBusca(state.logsSearch);
-    const logs = state.logs.filter(log => !termo || normalizarBusca(`${log.paciente} ${log.tipo} ${log.conteudo}`).includes(termo));
+    const logs = state.logs.filter(log => {
+      if (state.logsFilter !== 'todos' && log.tipo !== state.logsFilter) return false;
+      return !termo || normalizarBusca(`${log.paciente} ${log.tipo} ${log.conteudo}`).includes(termo);
+    });
     document.getElementById('logs-content').innerHTML = logs.length ? `<div class="logs-list">${logs.map(log => `
       <article class="log-card"><div class="log-top"><div><strong>${esc(log.paciente || 'Mensagem do sistema')}</strong><time>${formatarDataHora(log.dataHora)}</time></div><span class="log-type">${esc(log.tipo.replaceAll('_', ' '))}</span></div><p class="log-message">${esc(log.conteudo)}</p><div class="log-footer"><span>${formatarTelefone(log.telefone)}</span><span class="${log.status === 'SIMULADO' ? 'simulated' : ''}">${esc(log.status)}</span></div></article>`).join('')}</div>` :
       `<div class="records-card">${vazio('receipt_long', 'Nenhuma mensagem simulada', 'Execute as automações com pacientes elegíveis para criar os primeiros logs.')}</div>`;
   }
 
+  function renderLogsFilters() {
+    document.getElementById('logs-filters').innerHTML = LOG_FILTERS.map(([valor, rotulo]) =>
+      `<button class="filter-chip ${state.logsFilter === valor ? 'is-active' : ''}" data-log-filter="${escAttr(valor)}">${esc(rotulo)}</button>`
+    ).join('');
+    document.querySelectorAll('[data-log-filter]').forEach(botao => botao.addEventListener('click', () => {
+      state.logsFilter = botao.dataset.logFilter;
+      renderLogsFilters();
+      renderLogs();
+    }));
+  }
+
   function preencherConfiguracoes() {
     const form = document.getElementById('settings-form');
-    Object.entries(state.configuracoes).forEach(([chave, valor]) => { if (form.elements[chave]) form.elements[chave].value = valor; });
+    Object.entries(state.configuracoes).forEach(([chave, valor]) => {
+      if (chave !== 'modoTeste' && form.elements[chave]) form.elements[chave].value = valor;
+    });
+    form.elements.modoTeste.value = state.configuracoes.modoTeste ? 'Ativo — mensagens somente nos Logs' : 'Inativo';
   }
 
   function preencherStatusEdicao() {
@@ -262,11 +307,19 @@
   async function cadastrarPaciente(evento) {
     evento.preventDefault();
     const form = evento.currentTarget;
-    if (!form.reportValidity()) return;
+    if (!form.reportValidity() || !validarPacienteFrontend(form)) return;
     const botao = form.querySelector('button[type="submit"]');
     definirOcupado(botao, true);
     try {
-      const resposta = await chamadaServidor('criarPaciente', dadosFormulario(form));
+      const dados = dadosFormulario(form);
+      let resposta = await chamadaServidor('criarPaciente', dados);
+      if (resposta.dados && resposta.dados.requerConfirmacaoDuplicidade) {
+        if (!confirm(`${resposta.mensagem}\n\nDeseja cadastrar mesmo assim?`)) {
+          toast('Cadastro mantido no formulário para revisão.', 'info');
+          return;
+        }
+        resposta = await chamadaServidor('criarPaciente', { ...dados, permitirDuplicado: true });
+      }
       form.reset();
       toast(resposta.mensagem);
       await carregarDados();
@@ -279,7 +332,31 @@
   }
 
   function conectarBotoesEdicao() {
-    document.querySelectorAll('[data-edit-id]').forEach(botao => botao.addEventListener('click', () => abrirModalEdicao(botao.dataset.editId)));
+    document.querySelectorAll('[data-edit-id]').forEach(botao => {
+      if (botao.dataset.bound) return;
+      botao.dataset.bound = 'true';
+      botao.addEventListener('click', () => abrirModalEdicao(botao.dataset.editId));
+    });
+    document.querySelectorAll('[data-status-id]').forEach(botao => {
+      if (botao.dataset.bound) return;
+      botao.dataset.bound = 'true';
+      botao.addEventListener('click', () => alterarStatusRapido(botao));
+    });
+  }
+
+  async function alterarStatusRapido(botao) {
+    const status = botao.dataset.statusValue;
+    if (status === 'Cancelado' && !confirm('Tem certeza que deseja cancelar esta consulta?')) return;
+    definirOcupado(botao, true);
+    try {
+      const resposta = await chamadaServidor('atualizarStatusPaciente', botao.dataset.statusId, status);
+      toast(resposta.mensagem);
+      await carregarDados();
+    } catch (erro) {
+      toast(obterMensagemErro(erro), 'error');
+    } finally {
+      definirOcupado(botao, false);
+    }
   }
 
   function abrirModalEdicao(id) {
@@ -302,14 +379,18 @@
   async function salvarEdicao(evento) {
     evento.preventDefault();
     const form = evento.currentTarget;
-    if (!form.reportValidity()) return;
+    if (!form.reportValidity() || !validarPacienteFrontend(form)) return;
     const botao = form.querySelector('button[type="submit"]');
     definirOcupado(botao, true);
     try {
       const dados = dadosFormulario(form);
       const id = dados.id;
       delete dados.id;
-      const resposta = await chamadaServidor('atualizarPaciente', id, dados);
+      let resposta = await chamadaServidor('atualizarPaciente', id, dados);
+      if (resposta.dados && resposta.dados.requerConfirmacaoDuplicidade) {
+        if (!confirm(`${resposta.mensagem}\n\nDeseja salvar mesmo assim?`)) return;
+        resposta = await chamadaServidor('atualizarPaciente', id, { ...dados, permitirDuplicado: true });
+      }
       fecharModal();
       toast(resposta.mensagem);
       await carregarDados();
@@ -374,55 +455,25 @@
     }
   }
 
-  async function processarAutomacoesAgora() {
-    const botao = document.getElementById('run-automations');
-    definirOcupado(botao, true);
-    try {
-      const resposta = await chamadaServidor('processarAutomacoes');
-      const r = resposta.dados;
-      toast(`Processado: ${r.confirmacoesSemanais} confirmação(ões), ${r.lembretes24h} lembrete(s) 24h e ${r.lembretes1h} lembrete(s) 1h.`);
-      await carregarDados();
-      trocarView('logs');
-    } catch (erro) {
-      toast(obterMensagemErro(erro), 'error');
-    } finally {
-      definirOcupado(botao, false);
-    }
-  }
-
-  async function gerarDadosFicticios() {
-    if (!confirm('Criar cinco pacientes fictícios para teste?')) return;
-    const botao = document.getElementById('generate-fixtures');
-    definirOcupado(botao, true);
-    try {
-      const resposta = await chamadaServidor('gerarPacientesFicticios');
-      toast(resposta.mensagem);
-      await carregarDados();
-      trocarView('agenda');
-    } catch (erro) {
-      toast(obterMensagemErro(erro), 'error');
-    } finally {
-      definirOcupado(botao, false);
-    }
-  }
-
-  async function testarConfirmacaoSemanalAgora() {
-    const botao = document.getElementById('run-weekly-test');
-    definirOcupado(botao, true);
-    try {
-      const resposta = await chamadaServidor('testarConfirmacaoSemanal');
-      toast(resposta.mensagem);
-      await carregarDados();
-      trocarView('logs');
-    } catch (erro) {
-      toast(obterMensagemErro(erro), 'error');
-    } finally {
-      definirOcupado(botao, false);
-    }
-  }
-
   function dadosFormulario(form) {
     return Object.fromEntries(new FormData(form).entries());
+  }
+
+  function validarPacienteFrontend(form) {
+    const nome = String(form.elements.nome.value || '').trim();
+    let telefone = String(form.elements.telefone.value || '').replace(/\D/g, '');
+    if (telefone.startsWith('55') && telefone.length > 11) telefone = telefone.slice(2);
+    if (nome.length < 2) {
+      toast('Informe o nome completo do paciente.', 'error');
+      form.elements.nome.focus();
+      return false;
+    }
+    if (![10, 11].includes(telefone.length)) {
+      toast('Informe um WhatsApp válido com DDD.', 'error');
+      form.elements.telefone.focus();
+      return false;
+    }
+    return true;
   }
 
   function alternarMenuMais() {
@@ -439,13 +490,20 @@
 
   function definirOcupado(botao, ocupado) {
     if (!botao) return;
+    if (ocupado && !botao.dataset.originalHtml) botao.dataset.originalHtml = botao.innerHTML;
     botao.disabled = ocupado;
     botao.setAttribute('aria-busy', String(ocupado));
+    if (ocupado) {
+      botao.innerHTML = `<span class="button-spinner" aria-hidden="true"></span>${esc(botao.dataset.loading || 'Aguarde...')}`;
+    } else if (botao.dataset.originalHtml) {
+      botao.innerHTML = botao.dataset.originalHtml;
+      delete botao.dataset.originalHtml;
+    }
   }
 
   function toast(mensagem, tipo = 'success', duracao = 4000) {
     const elemento = document.createElement('div');
-    elemento.className = `toast ${tipo === 'error' ? 'error' : ''}`;
+    elemento.className = `toast ${['error', 'info'].includes(tipo) ? tipo : ''}`;
     elemento.textContent = mensagem;
     document.getElementById('toast-region').appendChild(elemento);
     setTimeout(() => elemento.remove(), duracao);
@@ -456,7 +514,8 @@
     let digitos = input.value.replace(/\D/g, '');
     if (digitos.startsWith('55') && digitos.length > 11) digitos = digitos.slice(2);
     digitos = digitos.slice(0, 11);
-    if (digitos.length > 6) input.value = `(${digitos.slice(0,2)}) ${digitos.slice(2,7)}-${digitos.slice(7)}`;
+    if (digitos.length > 10) input.value = `(${digitos.slice(0,2)}) ${digitos.slice(2,7)}-${digitos.slice(7)}`;
+    else if (digitos.length > 6) input.value = `(${digitos.slice(0,2)}) ${digitos.slice(2,6)}-${digitos.slice(6)}`;
     else if (digitos.length > 2) input.value = `(${digitos.slice(0,2)}) ${digitos.slice(2)}`;
     else input.value = digitos;
   }
@@ -477,7 +536,13 @@
   function statusClass(status) { return normalizarBusca(status).replaceAll(' ', '-'); }
   function normalizarBusca(valor) { return String(valor || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim(); }
   function capitalizar(valor) { return valor ? valor.charAt(0).toUpperCase() + valor.slice(1) : ''; }
-  function obterMensagemErro(erro) { return erro && erro.message ? erro.message.replace(/^Exception:\s*/, '') : 'Ocorreu um erro inesperado.'; }
+  function obterMensagemErro(erro) {
+    const mensagem = erro && erro.message ? String(erro.message).replace(/^Exception:\s*/, '') : '';
+    if (!mensagem || /(?:ReferenceError|TypeError|SyntaxError|Cannot read|at\s+\w+|Service invoked|internal error)/i.test(mensagem)) {
+      return 'Não foi possível concluir a operação. Tente novamente.';
+    }
+    return mensagem;
+  }
   function esc(valor) { return String(valor ?? '').replace(/[&<>"']/g, caractere => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[caractere])); }
   function escAttr(valor) { return esc(valor); }
   function vazio(icone, titulo, texto) { return `<div class="empty-state"><span class="material-symbols-rounded">${icone}</span><strong>${titulo}</strong><p>${texto}</p></div>`; }

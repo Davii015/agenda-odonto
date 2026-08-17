@@ -8,6 +8,21 @@
 !.env.example
 credentials.json
 token.json
+secrets.json
+config.local.*
+*.local.json
+
+# Exportações e bancos locais (podem conter dados pessoais)
+*.csv
+*.tsv
+*.xls
+*.xlsx
+*.ods
+*.sqlite
+*.sqlite3
+*.db
+backups/
+exports/
 
 # Dependências e arquivos temporários
 node_modules/

@@ -2,12 +2,21 @@
  * Único ponto de passagem para mensagens. A integração externa fica isolada aqui.
  * O quarto parâmetro é opcional e carrega dados do paciente para o log.
  */
-function enviarMensagemWhatsApp(telefone, mensagem, tipo, contexto) {
+function enviarMensagemWhatsApp(telefone, mensagem, tipo, contexto, filaLogs) {
   const config = getConfig_();
   const paciente = contexto || { id: '', nome: '', telefone: normalizarTelefone_(telefone) };
 
   if (config.MODO_TESTE) {
-    registrarLog_(paciente, tipo, mensagem, 'SIMULADO', 'Nenhuma mensagem externa foi enviada.');
+    const registro = {
+      id: criarIdLogMensagem_(paciente, tipo),
+      paciente,
+      tipo,
+      mensagem,
+      status: 'SIMULADO',
+      detalhes: 'Nenhuma mensagem externa foi enviada.'
+    };
+    if (Array.isArray(filaLogs)) filaLogs.push(registro);
+    else registrarLog_(paciente, tipo, mensagem, registro.status, registro.detalhes);
     return { sucesso: true, status: 'SIMULADO' };
   }
 

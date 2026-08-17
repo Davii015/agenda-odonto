@@ -10,14 +10,16 @@ function include(nomeArquivo) {
 }
 
 function setup() {
-  const planilha = garantirEstrutura_(true);
-  const verificacao = verificarConfiguracoes_();
-  const gatilho = criarGatilhos();
-  return respostaSucesso_('Agenda Odonto configurada com sucesso.', {
-    planilhaId: planilha.getId(),
-    planilhaUrl: planilha.getUrl(),
-    configuracoes: verificacao,
-    gatilho: gatilho.mensagem
+  return executarEndpoint_('configurar a Agenda Odonto', () => {
+    const planilha = garantirEstrutura_(true);
+    const verificacao = verificarConfiguracoes_();
+    const gatilho = criarGatilhos_();
+    return respostaSucesso_('Agenda Odonto configurada com sucesso.', {
+      planilhaId: planilha.getId(),
+      planilhaUrl: planilha.getUrl(),
+      configuracoes: verificacao,
+      gatilho: gatilho.mensagem
+    });
   });
 }
 
@@ -29,75 +31,88 @@ function verificarConfiguracoes_() {
 }
 
 function obterDadosAplicacao() {
-  garantirEstrutura_();
-  const pacientes = ordenarPacientes_(obterPacientes_()).map(limparCamposInternos_);
-  return {
-    pacientes,
-    logs: obterLogs_(250),
-    configuracoes: getConfiguracoesPublicas_(),
-    statusDisponiveis: STATUS_PACIENTES.slice(),
-    servidorAgora: agoraFormatado_()
-  };
+  return executarEndpoint_('carregar a agenda', () => {
+    garantirEstrutura_();
+    return respostaSucesso_('Dados carregados.', {
+      pacientes: ordenarPacientes_(obterPacientes_()).map(limparCamposInternos_),
+      logs: obterLogs_(250),
+      configuracoes: getConfiguracoesPublicas_(),
+      statusDisponiveis: STATUS_PACIENTES.slice(),
+      servidorAgora: agoraFormatado_()
+    });
+  });
 }
 
 function listarPacientes() {
-  return ordenarPacientes_(obterPacientes_()).map(limparCamposInternos_);
+  return executarEndpoint_('listar os pacientes', () =>
+    respostaSucesso_('Pacientes carregados.', ordenarPacientes_(obterPacientes_()).map(limparCamposInternos_)));
 }
 
 function listarLogs(limite) {
-  return obterLogs_(limite);
+  return executarEndpoint_('listar os logs', () => respostaSucesso_('Logs carregados.', obterLogs_(limite)));
 }
 
 function importarPacientes(texto) {
-  const linhas = String(texto || '').split(/\r?\n/);
-  const validos = [];
-  const erros = [];
+  return executarEndpoint_('importar os pacientes', () => {
+    const linhas = String(texto || '').split(/\r?\n/);
+    const candidatos = [];
+    const erros = [];
 
-  linhas.forEach((linhaOriginal, indice) => {
-    const numeroLinha = indice + 1;
-    const linha = linhaOriginal.trim();
-    if (!linha) return;
-    const campos = linha.split(';').map(item => item.trim());
-    if (campos.length !== 4) {
-      erros.push({ linha: numeroLinha, conteudo: linhaOriginal, erro: 'Use 4 campos separados por ponto e vírgula.' });
-      return;
-    }
-    try {
-      const paciente = {
-        nome: textoSeguro_(campos[0], 150),
-        telefone: normalizarTelefone_(campos[1]),
-        dataConsulta: normalizarData_(campos[2]),
-        horario: normalizarHorario_(campos[3])
-      };
-      if (!paciente.nome || paciente.nome.length < 2) throw new Error('Nome inválido.');
-      criarDataConsulta_(paciente.dataConsulta, paciente.horario);
-      validos.push({ numeroLinha, paciente });
-    } catch (erro) {
-      erros.push({ linha: numeroLinha, conteudo: linhaOriginal, erro: erro.message });
-    }
+    linhas.forEach((linhaOriginal, indice) => {
+      const numeroLinha = indice + 1;
+      const linha = linhaOriginal.trim();
+      if (!linha) return;
+      const campos = linha.split(';').map(item => item.trim());
+      if (campos.length !== 4) {
+        erros.push({ linha: numeroLinha, erro: 'Use 4 campos separados por ponto e vírgula.' });
+        return;
+      }
+      try {
+        const paciente = {
+          nome: validarNome_(campos[0]),
+          telefone: normalizarTelefone_(campos[1]),
+          dataConsulta: normalizarData_(campos[2]),
+          horario: normalizarHorario_(campos[3])
+        };
+        criarDataConsulta_(paciente.dataConsulta, paciente.horario);
+        candidatos.push({ numeroLinha, paciente });
+      } catch (erro) {
+        erros.push({ linha: numeroLinha, erro: erro.message });
+      }
+    });
+
+    const importados = comBloqueio_(() => {
+      const existentes = obterPacientes_();
+      const aceitos = [];
+      candidatos.forEach(item => {
+        const universo = existentes.concat(aceitos.map(aceito => aceito.paciente));
+        if (universo.some(paciente => ehDuplicadoExato_(paciente, item.paciente))) {
+          erros.push({ linha: item.numeroLinha, erro: 'Possível duplicidade: mesmo WhatsApp, data e horário.' });
+          return;
+        }
+        aceitos.push(item);
+      });
+
+      if (aceitos.length === 0) return 0;
+      const agora = agoraFormatado_();
+      const registros = aceitos.map(item => pacienteParaLinha_({
+        id: gerarId_('PAC'),
+        ...item.paciente,
+        status: 'Agendado',
+        confirmacaoSemanalEnviada: 'NÃO',
+        lembrete24hEnviado: 'NÃO',
+        lembrete1hEnviado: 'NÃO',
+        dataCadastro: agora,
+        ultimaAtualizacao: agora
+      }));
+      const aba = garantirEstrutura_().getSheetByName(ABAS.PACIENTES);
+      aba.getRange(aba.getLastRow() + 1, 1, registros.length, CABECALHOS_PACIENTES.length).setValues(registros);
+      return registros.length;
+    });
+
+    const mensagem = importados ? `${importados} paciente(s) importado(s).` : 'Nenhum paciente foi importado.';
+    return respostaSucesso_(mensagem, { importados, erros });
   });
-
-  if (validos.length === 0) {
-    return respostaSucesso_('Nenhum paciente foi importado.', { importados: 0, erros });
-  }
-
-  comBloqueio_(() => {
-    const agora = agoraFormatado_();
-    const registros = validos.map(item => pacienteParaLinha_({
-      id: gerarId_('PAC'),
-      ...item.paciente,
-      status: 'Agendado',
-      confirmacaoSemanalEnviada: 'NÃO',
-      lembrete24hEnviado: 'NÃO',
-      lembrete1hEnviado: 'NÃO',
-      dataCadastro: agora,
-      ultimaAtualizacao: agora
-    }));
-    const aba = garantirEstrutura_().getSheetByName(ABAS.PACIENTES);
-    aba.getRange(aba.getLastRow() + 1, 1, registros.length, CABECALHOS_PACIENTES.length).setValues(registros);
-  });
-
-  return respostaSucesso_(`${validos.length} paciente(s) importado(s).`, { importados: validos.length, erros });
 }
 
 function gerarPacientesFicticios() {

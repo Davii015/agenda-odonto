@@ -19,7 +19,7 @@
 
   * { box-sizing: border-box; }
   html { scroll-behavior: smooth; }
-  body { margin: 0; background: var(--bg); color: var(--text); font-family: Inter, Arial, sans-serif; -webkit-font-smoothing: antialiased; }
+  body { margin: 0; overflow-x: hidden; background: var(--bg); color: var(--text); font-family: Inter, Arial, sans-serif; -webkit-font-smoothing: antialiased; }
   button, input, textarea, select { font: inherit; }
   button { cursor: pointer; }
   .material-symbols-rounded { font-size: 22px; line-height: 1; }
@@ -110,6 +110,10 @@
   .record-row .record-phone { margin-top: 4px; color: var(--muted); font-size: 10px; }
   .record-date, .record-time { color: var(--text); font-size: 12px; }
   .edit-button { width: 36px; height: 36px; display: grid; place-items: center; border: 0; border-radius: 11px; background: #edf7fd; color: var(--primary); }
+  .quick-actions { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
+  .quick-action { display: inline-flex; align-items: center; gap: 4px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 9px; background: #f8fbfd; color: var(--text); font-size: 9px; font-weight: 700; }
+  .quick-action:hover { border-color: #aad2e9; background: #edf7fd; color: var(--primary-dark); }
+  .quick-action .material-symbols-rounded { font-size: 14px; }
 
   .form-card { padding: 26px; border: 1px solid rgba(220,234,243,.85); border-radius: 22px; background: var(--surface); box-shadow: var(--shadow); }
   .narrow-card { max-width: 650px; }
@@ -131,6 +135,7 @@
   .danger-button { border: 1px solid #ffd0d0; background: #fff5f5; color: var(--danger); }
   .full-button { width: 100%; margin-top: 5px; }
   button:disabled { cursor: wait; opacity: .6; transform: none !important; }
+  .button-spinner { width: 14px; height: 14px; flex: 0 0 auto; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; }
   .example-box { margin-bottom: 18px; padding: 14px; border-radius: 13px; background: #eff8fc; color: #42677e; overflow-x: auto; font-size: 11px; line-height: 1.7; }
   .import-summary { margin-top: 18px; padding: 14px; border-radius: 13px; background: #ebf9f4; color: #22755f; font-size: 12px; }
   .import-errors { margin: 10px 0 0; padding-left: 18px; color: var(--danger); line-height: 1.6; }
@@ -151,7 +156,7 @@
   .log-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
   .log-top strong { display: block; color: var(--navy); font-size: 13px; }
   .log-top time { display: block; margin-top: 4px; color: var(--muted); font-size: 10px; }
-  .log-type { padding: 6px 9px; border-radius: 999px; background: #e9f5fc; color: var(--primary); font-size: 9px; font-weight: 800; }
+  .log-type { max-width: 48%; padding: 6px 9px; border-radius: 999px; background: #e9f5fc; color: var(--primary); overflow-wrap: anywhere; font-size: 9px; font-weight: 800; text-align: center; }
   .log-message { margin: 0 0 12px; padding: 13px; border-radius: 12px; background: #f7fafc; color: #4c697c; white-space: pre-wrap; font-size: 11px; line-height: 1.6; }
   .log-footer { display: flex; justify-content: space-between; color: var(--muted); font-size: 10px; }
   .simulated { color: var(--success); font-weight: 700; }
@@ -179,10 +184,11 @@
   .toast-region { position: fixed; top: 18px; right: 18px; z-index: 120; display: grid; gap: 9px; width: min(350px, calc(100vw - 36px)); }
   .toast { padding: 13px 15px; border-radius: 13px; background: var(--navy); color: white; box-shadow: 0 12px 30px rgba(24,59,86,.2); font-size: 12px; animation: toastIn .2s ease; }
   .toast.error { background: #b94747; }
+  .toast.info { background: #315f7d; }
   @keyframes toastIn { from { opacity: 0; transform: translateY(-5px); } }
   .modal-backdrop { position: fixed; inset: 0; z-index: 110; display: none; align-items: center; justify-content: center; padding: 18px; background: rgba(17,48,70,.43); backdrop-filter: blur(3px); }
   .modal-backdrop.is-open { display: flex; }
-  .modal { position: relative; width: min(580px, 100%); max-height: calc(100vh - 36px); overflow-y: auto; padding: 26px; border-radius: 22px; background: white; box-shadow: 0 25px 70px rgba(17,48,70,.25); }
+  .modal { position: relative; width: min(580px, 100%); max-height: calc(100dvh - 36px); overflow-y: auto; padding: 26px; border-radius: 22px; background: white; box-shadow: 0 25px 70px rgba(17,48,70,.25); }
   .modal-close { position: absolute; top: 16px; right: 16px; }
   .modal-actions { display: flex; justify-content: space-between; gap: 12px; margin-top: 8px; }
 
